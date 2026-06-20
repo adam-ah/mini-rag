@@ -1,0 +1,7 @@
+flask
+pymupdf
+openpyxl
+pandas
+markitdown
+extract-msg
+anthropic

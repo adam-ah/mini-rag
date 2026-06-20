@@ -1,0 +1,1 @@
+The emergency alignment signal is amber. Its colour distinguishes alignment warnings from ordinary green operating notices.

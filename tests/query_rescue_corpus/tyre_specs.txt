@@ -1,0 +1,3 @@
+Tire air pressure (measured on cold tires)
+Front: 250 kPa (36 psi)
+Rear: 290 kPa (42 psi)

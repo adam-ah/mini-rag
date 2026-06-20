@@ -1,0 +1,1 @@
+Fuel injector pressure procedure: connect gauge to rail and verify 300 kPa.

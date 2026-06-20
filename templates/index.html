@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Document Search</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --panel2:#f1f3f6; --ink:#1c2330; --muted:#5b6675;
+    --accent:#2563eb; --accent2:#7c3aed; --border:#d9dee7; --good:#1a7f37; --warn:#9a6700;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink)}
+  header{padding:22px 24px 14px;border-bottom:1px solid var(--border);
+         background:linear-gradient(180deg,#ffffff,#f7f8fa); display:flex; justify-content:space-between; align-items:center}
+  h1{margin:0;font-size:20px;letter-spacing:.2px}
+  .header-right{display:flex;align-items:center;gap:12px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .wrap{max-width:920px;margin:0 auto;padding:22px 24px 60px}
+  .askbar{display:flex;gap:10px;margin-bottom:8px}
+  textarea{flex:1;min-height:52px;max-height:200px;resize:vertical;background:var(--panel);
+           color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font:inherit}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .controls{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  button{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:600;cursor:pointer}
+  button.secondary{background:var(--panel2);color:var(--ink);border:1px solid var(--border)}
+  button:disabled{opacity:.5;cursor:default}
+  .meta{color:var(--muted);font-size:12.5px;margin-left:auto}
+  .hint{color:var(--muted);font-size:12px;margin:-2px 0 14px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;border:1px solid var(--border)}
+  .pill.on{color:var(--good);border-color:#b7e0c0;background:#eafaef}
+  .pill.off{color:var(--warn);border-color:#ead9a6;background:#fdf6e3}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-top:18px}
+  .card h2{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .card h2.toggle{cursor:pointer;user-select:none}
+  .card h2.toggle:hover{color:var(--ink)}
+  .answer{color:var(--ink)}
+  .answer p{margin:0 0 11px}
+  .answer strong{color:var(--ink);font-weight:700}
+  .answer em{color:var(--ink)}
+  .answer h3,.answer h4,.answer h5,.answer h6{color:var(--ink);margin:15px 0 6px;font-size:15px;font-weight:700}
+  .answer ul{margin:6px 0 11px;padding-left:22px}
+  .answer li{margin:2px 0;color:var(--ink)}
+  .answer table{border-collapse:collapse;margin:10px 0;font-size:13px;display:block;overflow:auto;max-width:100%}
+  .answer th,.answer td{border:1px solid var(--border);padding:5px 9px;text-align:left;vertical-align:top}
+  .answer th{background:var(--panel2);font-weight:700}
+  .answer code{background:#eef1f5;color:var(--ink);border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:13px}
+  .answer .cite{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:600}
+  .modeline{font-size:12px;color:var(--muted);margin-bottom:10px}
+  ul.steps{list-style:none;margin:0;padding:0}
+  ul.steps li{padding:6px 0;font-size:13.5px;display:flex;gap:9px;align-items:flex-start}
+  ul.steps li .ico{flex:0 0 16px;margin-top:2px}
+  ul.steps li.done .ico{color:var(--good)}
+  ul.steps li .files{margin:5px 0 0;padding:0;list-style:none}
+  ul.steps li .files li{color:var(--muted);font-size:12px;padding:1px 0}
+  .screen{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;
+          border:1px solid var(--border);border-radius:9px;margin-bottom:8px;background:var(--panel2)}
+  .screen .nm{font-size:13px;word-break:break-word}
+  .open{flex:0 0 auto;color:var(--accent);text-decoration:none;font-size:12.5px;font-weight:600;
+        border:1px solid var(--border);border-radius:7px;padding:5px 10px;background:#fff}
+  ol.sources{margin:0;padding-left:0;list-style:none}
+  ol.sources li{padding:10px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:9px;background:var(--panel2)}
+  ol.sources li .path{font-size:13px;color:var(--accent);word-break:break-word}
+  ol.sources li .sp{font-size:11px;color:var(--muted);margin-left:6px}
+  ol.sources li .prev{color:var(--muted);font-size:12.5px;margin-top:4px}
+  ol.sources li .num{display:inline-block;min-width:20px;color:var(--accent2);font-weight:700}
+  .wf{display:inline-block;margin-top:6px;color:var(--accent);font-size:12px;font-weight:600;text-decoration:none;
+      border:1px solid var(--border);border-radius:7px;padding:3px 9px;background:#fff}
+  .hit{padding:11px 13px;border:1px solid var(--border);border-radius:9px;margin-bottom:9px;background:var(--panel2)}
+  .hit .path{font-size:13px;color:var(--accent);word-break:break-word}
+  .hit .prev{color:var(--muted);font-size:12.5px;margin-top:4px}
+  a.path,.hit .path a{color:var(--accent);text-decoration:none;cursor:pointer}
+  a.path:hover,.hit .path a:hover{text-decoration:underline}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--accent);
+        border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .awaiting{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13.5px;padding:8px 0}
+  .awaiting .spin{width:16px;height:16px}
+  .query-help{display:none;margin:10px 0 14px;padding:10px 12px;border:1px solid var(--border);
+              border-radius:9px;background:#fff;font-size:13px}
+  .query-help .expanded{color:var(--muted);margin-bottom:7px}
+  .query-help button{margin:3px 6px 3px 0;padding:5px 9px;font-size:12.5px}
+  .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);backdrop-filter:blur(2px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 10px 25px rgba(0,0,0,.1)}
+  .modal h2{margin:0 0 20px;font-size:18px}
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
+  .field input, .field select{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font:inherit;color:var(--ink)}
+  .field input[type="checkbox"]{width:auto;margin-right:7px;vertical-align:middle}
+  .field .env-warn{font-size:11px;color:var(--warn);margin-top:4px;display:none}
+  .field .error{font-size:11px;color:#d32f2f;margin-top:4px}
+  .modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;padding-top:16px;border-top:1px solid var(--border)}
+  .modal-footer button{min-width:80px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><span>Document</span> Search</h1>
+    <div class="sub">Ask a question; it finds the relevant passages and answers from them.</div>
+  </div>
+  <div class="header-right">
+    <button id="settingsBtn" class="secondary">Settings</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal">
+      <h2>Settings</h2>
+      <div class="field">
+        <label>AI Backend</label>
+        <select id="set-backend">
+          <option value="openai">OpenAI-compatible</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="extractive">Extractive (No LLM)</option>
+        </select>
+      </div>
+      <div id="ai-fields">
+        <div class="field">
+          <label>Base URL</label>
+          <input type="text" id="set-url" placeholder="http://localhost:8080/v1">
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <input type="text" id="rag-ai-model-identifier-v1" name="rag_ai_model_identifier_v1"
+                 autocomplete="off" autocapitalize="none" spellcheck="false"
+                 data-bwignore="true" data-1p-ignore="true" data-lpignore="true">
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+        <div class="field">
+          <label>API Key</label>
+          <input type="password" id="rag-ai-credential-token-v1" name="rag_ai_credential_token_v1"
+                 placeholder="A key is saved" autocomplete="new-password"
+                 data-bwignore="true" data-1p-ignore="true" data-lpignore="true">
+          <div id="set-key-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+        </div>
+        <div class="field">
+          <label>Temperature</label>
+          <input type="number" step="0.1" id="set-temp">
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+        <div class="field">
+          <label>Max Tokens</label>
+          <input type="number" id="set-tokens">
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+        <div class="field">
+          <label>Timeout (s)</label>
+          <input type="number" id="set-timeout">
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+        <div class="field">
+          <label><input type="checkbox" id="set-adaptive-refinement"> Check answers for missing evidence</label>
+          <div class="env-warn">Overridden by environment</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="set-test" class="secondary">Test</button>
+        <button id="set-clear" class="secondary">Clear Key</button>
+        <button id="settings-reset-to-defaults-v1" class="secondary">Reset settings</button>
+        <button id="set-save">Save</button>
+        <button id="set-close" class="secondary">Close</button>
+      </div>
+    </div>
+  </div>
+  <div class="askbar"><textarea id="q" rows="1" placeholder="Ask a question about your documents"></textarea></div>
+  <div class="hint">Press Enter to ask · Shift+Enter for a new line</div>
+  <div class="controls">
+    <button id="ask">Ask</button>
+    <button id="searchBtn" class="secondary">Search only</button>
+    <button id="syncBtn" class="secondary">Sync docs</button>
+    <span class="meta" id="meta"></span>
+  </div>
+  <div class="ex" id="examples"></div>
+  <div class="query-help" id="queryHelp">
+    <div class="expanded" id="queryExpansionNotice"></div>
+    <div id="querySuggestions"></div>
+  </div>
+
+  <div id="stepsCard" class="card" style="display:none">
+    <h2 id="stepsToggle" class="toggle">Working</h2>
+    <ul class="steps" id="steps"></ul>
+  </div>
+
+  <div id="answerCard" class="card" style="display:none">
+    <h2>Answer</h2>
+    <div class="modeline" id="mode"></div>
+    <div class="answer" id="answer"></div>
+  </div>
+
+  <div id="screensCard" class="card" style="display:none">
+    <h2>Relevant UI screens</h2>
+    <div id="screens"></div>
+  </div>
+
+  <div id="sourcesCard" class="card" style="display:none">
+    <h2>Sources</h2>
+    <ol class="sources" id="sources"></ol>
+  </div>
+
+  <div id="hitsCard" class="card" style="display:none">
+    <h2>Matches</h2>
+    <div id="hits"></div>
+  </div>
+</div>
+
+<script src="/render.js"></script>
+<script src="/stream.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const q = $('#q');
+let es = null;
+let abController = null;
+
+function esc(s){ return MD.esc(s); }
+function encPath(prefix, rel){return prefix + rel.split('/').map(encodeURIComponent).join('/');}
+function wfHref(rel){return encPath('/wireframe/', rel);}
+function docHref(rel){return encPath('/doc/', rel);}
+
+function wireCites(){
+  $('#answer').querySelectorAll('.cite').forEach(c=>c.onclick=()=>{
+    const el=document.getElementById('src-'+c.dataset.n);
+    if(el){el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.style.transition='background .2s'; el.style.background='#dbeafe';
+      setTimeout(()=>el.style.background='',900);}
+  });
+}
+
+let stepsCollapsed=false;
+function setStepsCollapsed(c){
+  stepsCollapsed=c;
+  $('#steps').style.display = c ? 'none' : '';
+  const n=$('#steps').children.length;
+  $('#stepsToggle').textContent = (c?'▸ ':'▾ ')+'Working'+(n?` · ${n} steps`:'');
+}
+function finishLastStep(){
+  const li=$('#steps').lastElementChild;
+  if(li){li.classList.add('done'); li.querySelector('.ico').textContent='✓';}
+}
+function addStep(label, files){
+  finishLastStep();
+  const li=document.createElement('li');
+  li.innerHTML=`<span class="ico"><span class="spin"></span></span><span class="txt">${esc(label)}</span>`;
+  if(files && files.length){
+    const ul=document.createElement('ul'); ul.className='files';
+    files.forEach(f=>{const x=document.createElement('li'); x.textContent=f; ul.appendChild(x);});
+    li.querySelector('.txt').appendChild(ul);
+  }
+  $('#steps').appendChild(li);
+}
+
+function renderScreens(screens){
+  const box=$('#screens'); box.innerHTML='';
+  (screens||[]).forEach(s=>{
+    const d=document.createElement('div'); d.className='screen';
+    d.innerHTML=`<span class="nm">${esc(s.name)} <span style="color:var(--muted)">— ${esc(s.relpath)}</span></span>`
+      +`<a class="open" href="${wfHref(s.html)}" target="_blank" rel="noopener">open wireframe ↗</a>`;
+    box.appendChild(d);
+  });
+  $('#screensCard').style.display=(screens&&screens.length)?'block':'none';
+}
+
+function renderSources(sources){
+  MD.setSources((sources||[]).length);
+  const sc=$('#sources'); sc.innerHTML='';
+  (sources||[]).forEach(s=>{
+    const li=document.createElement('li'); li.id='src-'+s.n;
+    let h=`<span class="num">[${s.n}]</span> `
+      +`<a class="path" href="${docHref(s.relpath)}" target="_blank" rel="noopener">${esc(s.relpath)} ↗</a>`
+      +`<span class="sp">${esc(s.sprint||'')}</span><div class="prev">${esc(s.preview)}…</div>`;
+    if(s.html) h+=`<a class="wf" href="${wfHref(s.html)}" target="_blank" rel="noopener">open wireframe ↗</a>`;
+    li.innerHTML=h; sc.appendChild(li);
+  });
+  $('#sourcesCard').style.display=(sources&&sources.length)?'block':'none';
+}
+
+function clearSources(){
+  MD.setSources(0);
+  $('#sources').innerHTML='';
+  $('#sourcesCard').style.display='none';
+}
+
+function clearQueryHelp(){
+  $('#queryHelp').style.display='none';
+  $('#queryExpansionNotice').textContent='';
+  $('#querySuggestions').innerHTML='';
+}
+
+function renderQueryHelp(expansions, suggestions, action){
+  const help=$('#queryHelp');
+  const notice=$('#queryExpansionNotice');
+  const box=$('#querySuggestions');
+  notice.textContent=''; box.innerHTML='';
+  if(expansions&&expansions.length){
+    notice.textContent='Expanded search: '+expansions.map(e=>`${e.source} → ${e.target}`).join(', ');
+  }
+  if(suggestions&&suggestions.length){
+    const label=document.createElement('span'); label.textContent='Try asking: ';
+    box.appendChild(label);
+    suggestions.forEach(s=>{
+      const button=document.createElement('button');
+      button.className='secondary'; button.type='button'; button.textContent=s;
+      button.onclick=()=>{q.value=s; action==='search'?searchOnly():ask();};
+      box.appendChild(button);
+    });
+  }
+  help.style.display=(notice.textContent||box.children.length)?'block':'none';
+}
+
+function handleStreamMessage(m, state){
+  if(m.type==='step') addStep(m.label, m.files);
+  else if(m.type==='query_expansion'){
+    state.expansions=m.expansions||[];
+    renderQueryHelp(state.expansions, state.suggestions, 'ask');
+  }
+  else if(m.type==='suggestions'){
+    state.suggestions=m.suggestions||[];
+    renderQueryHelp(state.expansions, state.suggestions, 'ask');
+  }
+  else if(m.type==='token'){ state.answerText+=m.text; $('#answer').innerHTML=MD.render(state.answerText); }
+  else if(m.type==='answer'){ state.answerText=m.text; $('#answer').innerHTML=MD.render(state.answerText); }
+  else if(m.type==='sources') renderSources(m.sources);
+  else if(m.type==='screens') renderScreens(m.screens);
+  else if(m.type==='done'){
+    state.expansions=m.expansions||state.expansions;
+    state.suggestions=m.suggestions||state.suggestions;
+    renderQueryHelp(state.expansions, state.suggestions, 'ask');
+    finishLastStep(); $('#answer').innerHTML=MD.render(state.answerText); wireCites();
+    let line='mode: '+m.mode;
+    if(m.coverage&&m.coverage.chunks) line+=` · synthesized from ${m.coverage.chunks} passages across ${m.coverage.files} files`;
+    $('#mode').textContent=line;
+    $('#ask').disabled=false;
+    setStepsCollapsed(true);
+    $('#answerCard').scrollIntoView({behavior:'smooth',block:'start'});
+  } else if(m.type==='error'){
+    $('#answer').textContent='Error: '+m.message; $('#ask').disabled=false;
+  }
+}
+
+async function ask(){
+  const text=q.value.trim(); if(!text) return;
+  if(abController){abController.abort(); abController=null;}
+  abController=new AbortController();
+  clearSources();
+  clearQueryHelp();
+  $('#ask').disabled=true; $('#hitsCard').style.display='none';
+  $('#stepsCard').style.display='block'; $('#steps').innerHTML=''; setStepsCollapsed(false);
+  $('#answerCard').style.display='block'; $('#mode').textContent='';
+  $('#answer').innerHTML='<div class="awaiting"><span class="spin"></span> waiting for the model…</div>';
+  $('#screensCard').style.display='none'; $('#screens').innerHTML='';
+  const state={answerText:'',expansions:[],suggestions:[]};
+  try{
+    const response=await fetch('/api/ask_stream',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({q:text,sprint:null}),
+      signal:abController.signal
+    });
+    if(!response.ok){ throw new Error(`Server error: ${response.status}`); }
+    const reader=response.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      buffer+=decoder.decode(value, {stream:true});
+      const parsed=SSE.consume(buffer, false);
+      buffer=parsed.rest;
+      for(const payload of parsed.payloads) handleStreamMessage(JSON.parse(payload), state);
+    }
+    buffer+=decoder.decode();
+    const parsed=SSE.consume(buffer, true);
+    for(const payload of parsed.payloads) handleStreamMessage(JSON.parse(payload), state);
+  }catch(e){
+    if(e.name==='AbortError') return;
+    finishLastStep(); $('#ask').disabled=false;
+    if(state.answerText){ $('#answer').innerHTML=MD.render(state.answerText); wireCites(); }
+    else $('#answer').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>';
+  }
+}
+
+async function searchOnly(){
+  const text=q.value.trim(); if(!text) return;
+  if(abController){abController.abort(); abController=null;}
+  clearQueryHelp();
+  clearSources();
+  if(es){es.close(); es=null;}
+  $('#stepsCard').style.display='none'; $('#answerCard').style.display='none';
+  $('#screensCard').style.display='none'; $('#screens').innerHTML='';
+  $('#hitsCard').style.display='block'; $('#hits').innerHTML='<span class="spin"></span>';
+  const r=await fetch('/api/search?q='+encodeURIComponent(text));
+  const data=await r.json(); const box=$('#hits');
+  if(!r.ok){box.innerHTML='<div class="empty">Search failed.</div>'; return;}
+  renderQueryHelp(data.expansions||[], data.suggestions||[], 'search');
+  if(!data.hits.length){ box.innerHTML='<div class="empty">No matches.</div>'; return; }
+  box.innerHTML='';
+  data.hits.forEach(h=>{
+    const d=document.createElement('div'); d.className='hit';
+    let html=`<div class="path"><a href="${docHref(h.relpath)}" target="_blank" rel="noopener">${esc(h.relpath)} ↗</a>`
+      +` <span style="color:var(--muted)">· ${esc(h.sprint)}</span></div>`
+      +`<div class="prev">${esc(h.preview)}…</div>`;
+    if(h.html) html+=`<a class="wf" href="${wfHref(h.html)}" target="_blank" rel="noopener">open wireframe ↗</a>`;
+    d.innerHTML=html; box.appendChild(d);
+  });
+}
+
+async function meta(){
+  const m=await(await fetch('/api/meta')).json();
+  let pill;
+  if(m.backend==='openai') pill=m.reachable
+    ? `<span class="pill on">answers: ${esc(m.model)} @ ${esc(m.endpoint)}</span>`
+    : `<span class="pill off">local model unreachable (${esc(m.endpoint)}) — extractive fallback</span>`;
+  else if(m.backend==='claude') pill=`<span class="pill on">answers: Claude ${esc(m.model)}</span>`;
+  else pill=`<span class="pill off">answers: extractive (no LLM)</span>`;
+  $('#meta').innerHTML=`${m.chunks.toLocaleString()} passages · ${m.files} files · `+pill;
+  const ex=$('#examples');
+  const topics=m.topics||[], docs=m.documents||[];
+  let html='';
+  if(topics.length){
+    html+='Topics in your corpus: '+topics.map(t=>`<a data-q="${t.replace(/"/g,'&quot;')}">${esc(t)}</a>`).join('');
+  }
+  if(docs.length){
+    const shown=docs.slice(0,12).map(esc).join(' · ')+(docs.length>12?` · +${docs.length-12} more`:'');
+    html+=(html?'<div style="margin-top:8px">':'<div>')
+      +`<span style="opacity:.75">Searching ${docs.length} document${docs.length>1?'s':''}:</span> ${shown}</div>`;
+  }
+  ex.innerHTML=html||'Drop documents into <code>input/</code> and run <code>./convert.sh</code> to populate the corpus.';
+  ex.querySelectorAll('a').forEach(a=>a.onclick=()=>{q.value=a.dataset.q; ask();});
+}
+
+async function syncDocs(){
+  const btn=$('#syncBtn'); btn.disabled=true;
+  const r=await fetch('/api/corpus/sync',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':window.CSRF_TOKEN}
+  });
+  const data=await r.json();
+  if(data.ok){
+    const poll=async()=>{
+      const s=await(await fetch('/api/corpus/status')).json();
+      if(s.state==='running'){
+        btn.textContent=`Syncing... (${s.state})`;
+        setTimeout(poll,1000);
+      }else{
+        btn.disabled=false; btn.textContent='Sync docs';
+        meta();
+      }
+    };
+    poll();
+  }else{
+    alert('Sync failed: '+data.message);
+    btn.disabled=false;
+  }
+}
+
+$('#ask').onclick=ask;
+$('#searchBtn').onclick=searchOnly;
+$('#syncBtn').onclick=syncDocs;
+$('#stepsToggle').onclick=()=>setStepsCollapsed(!stepsCollapsed);
+q.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); ask(); } });
+meta();
+
+async function openSettings(){
+  const r=await fetch('/api/settings');
+  const data=await r.json();
+  const s=data.settings;
+  
+  $('#set-backend').value=s.ai.backend;
+  $('#set-url').value=s.ai.base_url;
+  $('#rag-ai-model-identifier-v1').value=s.ai.model;
+  $('#set-temp').value=s.ai.temperature;
+  $('#set-tokens').value=s.ai.max_tokens;
+  $('#set-timeout').value=s.ai.timeout_seconds;
+  $('#set-adaptive-refinement').checked=s.ai.adaptive_refinement;
+  $('#rag-ai-credential-token-v1').value='';
+  $('#set-key-status').textContent=data.api_key_configured?'A key is saved':'No key saved';
+  
+  const ov=data.overridden||{};
+  const fields={
+    'set-url':'base_url',
+    'rag-ai-model-identifier-v1':'model',
+    'set-temp':'temperature',
+    'set-tokens':'max_tokens',
+    'set-timeout':'timeout_seconds',
+    'set-adaptive-refinement':'adaptive_refinement'
+  };
+  Object.entries(fields).forEach(([id,name])=>{
+    const input=document.getElementById(id);
+    const warning=input.closest('.field').querySelector('.env-warn');
+    warning.style.display=ov[`ai.${name}`]?'block':'none';
+  });
+  
+  $('#settingsModal').style.display='flex';
+  updateAIFields();
+}
+
+function updateAIFields(){
+  const b=$('#set-backend').value;
+  $('#ai-fields').style.display=b==='extractive'?'none':'block';
+}
+
+async function saveSettings(clearKey=false){
+  const payload={
+    ai:{
+      backend:$('#set-backend').value,
+      base_url:$('#set-url').value,
+      model:$('#rag-ai-model-identifier-v1').value,
+      temperature:parseFloat($('#set-temp').value),
+      max_tokens:parseInt($('#set-tokens').value),
+      timeout_seconds:parseInt($('#set-timeout').value),
+      adaptive_refinement:$('#set-adaptive-refinement').checked,
+      api_key:clearKey?'':($('#rag-ai-credential-token-v1').value||null)
+    },
+    retrieval:{}
+  };
+  if(!clearKey && !$('#rag-ai-credential-token-v1').value) delete payload.ai.api_key;
+
+  const r=await fetch('/api/settings',{
+    method:'PUT',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':window.CSRF_TOKEN},
+    body:JSON.stringify(payload)
+  });
+  if(r.ok){
+    meta();
+    if(clearKey){ $('#set-key-status').textContent='No key saved'; }
+    else if($('#rag-ai-credential-token-v1').value) { $('#set-key-status').textContent='A key is saved'; }
+    $('#rag-ai-credential-token-v1').value='';
+    $('#settingsModal').style.display='none';
+  }else{
+    const err=await r.json(); alert('Error: '+err.error);
+  }
+}
+
+async function testSettings(){
+  const payload={ai:{
+    backend:$('#set-backend').value,
+    base_url:$('#set-url').value,
+    model:$('#rag-ai-model-identifier-v1').value,
+    api_key:$('#rag-ai-credential-token-v1').value
+  }};
+  const r=await fetch('/api/settings/test',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':window.CSRF_TOKEN},
+    body:JSON.stringify(payload)
+  });
+  const data=await r.json();
+  alert(data.ok?'Connection successful':'Connection failed: '+data.message);
+}
+
+let resetSettingsArmed=false;
+let resetSettingsTimer=null;
+async function resetSettings(){
+  const btn=$('#settings-reset-to-defaults-v1');
+  if(!resetSettingsArmed){
+    resetSettingsArmed=true;
+    btn.textContent='Confirm reset';
+    btn.style.color='#b42318';
+    clearTimeout(resetSettingsTimer);
+    resetSettingsTimer=setTimeout(()=>{
+      resetSettingsArmed=false;
+      btn.textContent='Reset settings';
+      btn.style.color='';
+    },5000);
+    return;
+  }
+
+  clearTimeout(resetSettingsTimer);
+  const r=await fetch('/api/settings',{
+    method:'DELETE',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':window.CSRF_TOKEN},
+    body:JSON.stringify({confirm:'RESET'})
+  });
+  if(r.ok){
+    resetSettingsArmed=false;
+    btn.textContent='Reset settings';
+    btn.style.color='';
+    $('#rag-ai-credential-token-v1').value='';
+    $('#settingsModal').style.display='none';
+    meta();
+  }else{
+    const err=await r.json();
+    alert('Reset failed: '+(err.error||'Unknown error'));
+  }
+}
+
+$('#settingsBtn').onclick=openSettings;
+$('#set-close').onclick=()=>$('#settingsModal').style.display='none';
+$('#set-backend').onchange=updateAIFields;
+$('#set-save').onclick=()=>saveSettings();
+$('#set-test').onclick=testSettings;
+$('#set-clear').onclick=()=>saveSettings(true);
+$('#settings-reset-to-defaults-v1').onclick=resetSettings;
+</script>
+</body>
+</html>

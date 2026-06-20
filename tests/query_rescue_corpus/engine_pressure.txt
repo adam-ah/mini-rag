@@ -1,0 +1,1 @@
+Engine oil pressure must be maintained between 2-4 bar. Low oil pressure will trigger a warning light.

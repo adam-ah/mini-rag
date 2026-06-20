@@ -1,0 +1,1 @@
+Cylinder compression pressure should be 12 bar minimum across all cylinders.

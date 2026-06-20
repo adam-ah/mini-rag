@@ -1,0 +1,1 @@
+The emergency alignment signal is triangular. Its shape allows operators to recognise the warning when colours are difficult to see.

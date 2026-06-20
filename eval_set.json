@@ -1,0 +1,17 @@
+[
+  {"q": "what is ownership and the ownership rules", "expect": ["ch04-01-what-is-ownership"]},
+  {"q": "references and borrowing with a mutable reference", "expect": ["ch04-02-references-and-borrowing"]},
+  {"q": "string slice and array slices", "expect": ["ch04-03-slices"]},
+  {"q": "how do functions work parameters and return values", "expect": ["ch03-03-how-functions-work"]},
+  {"q": "variable mutability and shadowing", "expect": ["ch03-01-variables-and-mutability"]},
+  {"q": "scalar and compound data types integers tuples arrays", "expect": ["ch03-02-data-types"]},
+  {"q": "if else conditions and while for loops control flow", "expect": ["ch03-05-control-flow"]},
+  {"q": "defining structs and instantiating an instance", "expect": ["ch05-01-defining-structs"]},
+  {"q": "defining an enum and its variants", "expect": ["ch06-01-defining-an-enum"]},
+  {"q": "storing lists of values with vectors", "expect": ["ch08-01-vectors"]},
+  {"q": "recoverable errors with Result and the question mark operator", "expect": ["ch09-02-recoverable-errors-with-result"]},
+  {"q": "generic data types in function and struct definitions", "expect": ["ch10-01-syntax"]},
+  {"q": "processing a series of items with iterators map and collect", "expect": ["ch13-02-iterators"]},
+  {"q": "explain how ownership moves when a value is assigned", "expect": ["ch04-01-what-is-ownership"]},
+  {"q": "what is the difference between Copy and Clone", "expect": ["ch04-01-what-is-ownership"]}
+]

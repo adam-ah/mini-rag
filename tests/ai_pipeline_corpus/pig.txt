@@ -1,0 +1,1 @@
+A pig is the same kind of device as a cat. The pig entry intentionally delegates its meaning to the separate cat definition.
