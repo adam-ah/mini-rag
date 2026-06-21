@@ -2,7 +2,10 @@
 
 Mini RAG is a lightweight Retrieval-Augmented Generation system that converts a variety of documents (PDFs, Word, etc.) into a searchable text corpus. It allows you to ask questions and receive grounded, synthesized answers with citations, using adaptive refinement for complex queries.
 
+![Demo](assets/demo_screenshot.png)
+
 ## Quick Start
+
 
 1. **Add your documents**: 
    Drop your PDFs, ebooks, specs, or notes into the `input/` folder.
