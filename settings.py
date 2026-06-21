@@ -18,7 +18,7 @@ class AISettings:
     adaptive_refinement: bool = True
     reflection_max_queries: int = 3
     reflection_max_tokens: int = 400
-    reflection_context_budget: int = 12000
+    reflection_context_budget: int = 32000
     refinement_context_budget: int = 10000
 
 @dataclass(frozen=True)
@@ -47,17 +47,17 @@ class SettingsService:
                 if os.path.exists(self.filepath):
                     with open(self.filepath, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                    
+
                     if data.get("version", 1) != 1:
                         raise ValueError(f"Unsupported settings version: {data.get('version')}")
-                    
+
                     # Simple merge: load file, then apply env
                     ai_data = data.get("ai", {})
                     # Ignore retired retrieval keys from older settings files.
                     ret_data = data.get("retrieval", {})
                     ret_data = {"exclude_patterns": ret_data.get("exclude_patterns", [])}
                     self._file_ai_fields = set(ai_data)
-                    
+
                     self._current = Settings(
                         version=data.get("version", 1),
                         ai=AISettings(**ai_data),
@@ -71,7 +71,7 @@ class SettingsService:
                 # For now, just print and use defaults.
                 print(f"Warning: Failed to load settings: {e}")
                 self._current = Settings()
-            
+
             self._apply_env_overrides()
 
     def _apply_env_overrides(self):
@@ -90,11 +90,11 @@ class SettingsService:
             "SEARCH_REFLECTION_CONTEXT_BUDGET": ("ai", "reflection_context_budget"),
             "SEARCH_REFINEMENT_CONTEXT_BUDGET": ("ai", "refinement_context_budget"),
         }
-        
+
         overridden = {}
         current_ai = asdict(self._current.ai)
         current_ret = asdict(self._current.retrieval)
-        
+
         for env, (cat, field_name) in mapping.items():
             val = os.environ.get(env)
             if val is not None:
@@ -114,7 +114,7 @@ class SettingsService:
                                          "refinement_context_budget"):
                         val = int(val)
                     current_ai[field_name] = val
-        
+
         self._current = Settings(
             version=self._current.version,
             ai=AISettings(**current_ai),
@@ -141,7 +141,7 @@ class SettingsService:
             # Validation
             ai = AISettings(**new_ai)
             ret = RetrievalSettings(**new_ret)
-            
+
             # Validate values
             if ai.backend not in ("openai", "claude", "extractive"):
                 raise ValueError("Invalid backend")
@@ -169,14 +169,14 @@ class SettingsService:
             # Normalize base_url
             normalized_url = ai.base_url.rstrip("/")
             ai = replace(ai, base_url=normalized_url)
-            
+
             # Atomic save
             data = {
                 "version": 1,
                 "ai": asdict(ai),
                 "retrieval": asdict(ret)
             }
-            
+
             settings_dir = os.path.dirname(self.filepath)
             os.makedirs(settings_dir, exist_ok=True)
             fd, temp_path = tempfile.mkstemp(prefix=".settings-", suffix=".tmp", dir=settings_dir)

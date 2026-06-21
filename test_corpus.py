@@ -32,6 +32,26 @@ class TokenizeTests(unittest.TestCase):
         self.assertIn("author", terms)
         self.assertIn("role", terms)
 
+    def test_query_terms_drops_retrieval_framing(self):
+        terms = corpus.query_terms("explain the specific definition and details of widgets")
+        self.assertEqual(terms, ["widget"])
+
+    def test_query_terms_drops_generic_approach_framing(self):
+        terms = corpus.query_terms("what is the focus on emotions approach in CBT")
+        self.assertEqual(terms, ["focu", "emotion", "cbt"])
+
+    def test_hyphenated_term_also_exposes_its_components(self):
+        self.assertEqual(
+            corpus.tokenize("binge-purge cycle"),
+            ["binge-purge", "binge", "purge", "cycle"],
+        )
+
+    def test_slug_like_term_does_not_expose_generic_components(self):
+        self.assertEqual(
+            corpus.tokenize("term-that-does-not-exist-in-the-corpus"),
+            ["term-that-does-not-exist-in-the-corpus"],
+        )
+
 
 class QueryModeTests(unittest.TestCase):
     def test_explain_and_steps_are_how(self):
@@ -40,6 +60,12 @@ class QueryModeTests(unittest.TestCase):
 
     def test_fact_lookup_is_exact(self):
         self.assertEqual(corpus.query_mode("what keyword declares a variable"), "exact")
+
+    def test_multi_facet_questions_receive_deeper_context(self):
+        self.assertEqual(
+            corpus.query_mode("what is the calibration for flux-valve used for vibration control"),
+            "how",
+        )
 
     def test_summary_is_global(self):
         self.assertEqual(corpus.query_mode("summarize ownership across the chapters"), "global")
@@ -142,9 +168,44 @@ class GatherTests(unittest.TestCase):
         self.assertGreater(sum(len(u["body"]) for u in deep),
                            sum(len(u["body"]) for u in flat))
 
+    def test_query_prioritizes_passages_connecting_requested_and_rare_facets(self):
+        directory = tempfile.mkdtemp()
+        try:
+            relation = (
+                "Flux-valve behavior can be used for vibration control. "
+                + "case formulation filler " * 180
+            )
+            procedure = (
+                "Flux and valve calibration uses TARGET_STAGED_PROCEDURE. "
+                + "clinical protocol filler " * 180
+            )
+            generic = (
+                "Calibration is used for vibration control. "
+                + "generic skills filler " * 180
+            )
+            write(directory, "Relation.md", relation)
+            write(directory, "Specific procedure.md", procedure)
+            write(directory, "Generic skills.md", generic)
+            loaded = corpus.Corpus().load(directory, source=directory)
+            used, _ = loaded.gather(
+                "what is the calibration for flux-valve used for vibration control?",
+                char_budget=7000,
+            )
+            bodies = "\n".join(passage["body"] for passage in used)
+            self.assertIn("TARGET_STAGED_PROCEDURE", bodies)
+            self.assertIn("TARGET_STAGED_PROCEDURE", used[0]["body"])
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+
     def test_override_max_chunks(self):
         used, _ = self.c.gather("zphrase", max_chunks=2)
         self.assertLessEqual(len(used), 2)
+
+    def test_override_expansion_radius(self):
+        default, _ = self.c.gather("explain step marker5")
+        narrow, _ = self.c.gather("explain step marker5", expand_radius=0)
+        self.assertGreater(sum(len(p["body"]) for p in default),
+                           sum(len(p["body"]) for p in narrow))
 
     def test_override_char_budget(self):
         used, _ = self.c.gather("zphrase", char_budget=2500)
@@ -215,6 +276,16 @@ class TemplateCssTests(unittest.TestCase):
         self.assertIn(".awaiting{", self.html)
         self.assertIn('class="awaiting"', self.html)
         self.assertIn("waiting for the model", self.html)
+
+    def test_refined_answer_has_separate_box_and_spinner(self):
+        self.assertIn('id="refinedAnswerCard"', self.html)
+        self.assertIn('id="refinedAnswer"', self.html)
+        self.assertIn('id="refinedSpinner"', self.html)
+        self.assertIn("Refining answer with additional evidence", self.html)
+        self.assertIn("src-initial-", self.html)
+        self.assertIn("src-refined-", self.html)
+        self.assertIn("wireCites('#answer','initial')", self.html)
+        self.assertIn("wireCites('#refinedAnswer','refined')", self.html)
 
     def test_working_panel_collapses_on_done(self):
         self.assertIn("function setStepsCollapsed", self.html)

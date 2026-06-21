@@ -156,7 +156,7 @@ class SettingsBrowserTests(unittest.TestCase):
                     self.assertIn("Ownership controls how values are moved.", answer)
                     self.assertIn("Borrowing allows references", answer)
                     self.assertGreater(page.locator("#sources > li").count(), 0)
-                    self.assertIn("ownership", page.locator("#sources").inner_text().lower())
+                    self.assertIn("borrowing", page.locator("#sources").inner_text().lower())
                     self.assertFalse(page.locator("#ask").is_disabled())
 
                     ask_requests = [(method, url) for method, url in requests if "/api/ask_stream" in url]
@@ -250,6 +250,59 @@ class SettingsBrowserTests(unittest.TestCase):
                 app.CORPUS[0] = old_corpus
 
             self.assertEqual(page_errors, [], f"browser page errors: {page_errors}")
+            self.assertEqual(console_errors, [], f"browser console errors: {console_errors}")
+
+    def test_verification_badge_appears_in_mode_line(self):
+        from werkzeug.serving import make_server
+
+        fixture = os.path.join(HERE, "tests", "small_corpus")
+        fixture_corpus = Corpus().load(text_dir=fixture, source=fixture)
+        with tempfile.TemporaryDirectory() as tmp:
+            service = SettingsService(os.path.join(tmp, "settings.json"))
+            service.save({
+                "backend": "openai", "base_url": "http://127.0.0.1:1/v1",
+                "model": "browser-verify-model", "api_key": "", "temperature": 0.2,
+                "max_tokens": 2500, "timeout_seconds": 5,
+                "adaptive_refinement": False,
+            }, {"exclude_patterns": []})
+            old_service = app.settings_service
+            old_corpus = app.CORPUS[0]
+            app.settings_service = service
+            app.CORPUS[0] = fixture_corpus
+
+            def fake_stream(*_args, **_kwargs):
+                yield "Hello world [1]."
+
+            stream_patch = mock.patch.object(app.backend, "stream", side_effect=fake_stream)
+            connection_patch = mock.patch.object(
+                app.backend, "test_connection", return_value=(True, "Connection successful")
+            )
+            stream_patch.start(); connection_patch.start()
+            server = make_server("127.0.0.1", 0, app.app, threaded=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            page_errors, console_errors = [], []
+            try:
+                with sync_playwright() as pw:
+                    browser = pw.chromium.launch(executable_path=self.chrome, headless=True)
+                    page = browser.new_page()
+                    page.on("pageerror", lambda error: page_errors.append(str(error)))
+                    page.on("console", lambda message:
+                            console_errors.append(message.text) if message.type == "error" else None)
+                    page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                    page.locator("#q").fill("any question")
+                    page.locator("#ask").click()
+                    page.locator("#mode .pill", has_text="not checked").wait_for(state="visible")
+                    mode_text = page.locator("#mode").inner_text()
+                    self.assertIn("browser-verify-model", mode_text)
+                    self.assertIn("not checked", mode_text)
+                    browser.close()
+            finally:
+                server.shutdown(); thread.join(timeout=5)
+                stream_patch.stop(); connection_patch.stop()
+                app.settings_service = old_service
+                app.CORPUS[0] = old_corpus
+
             self.assertEqual(console_errors, [], f"browser console errors: {console_errors}")
 
 

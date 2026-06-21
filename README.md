@@ -144,14 +144,14 @@ If a PDF contains no extractable text, the sync status will flag it as requiring
 python3 -m pip install -r requirements-dev.txt
 ./test.sh
 ```
-`test.sh` runs locally without contacting the application's configured provider. Live model tests
-are opt-in and use a separate endpoint exclusively:
+`test.sh` runs live model tests by default against a dedicated test endpoint and never contacts the
+application's configured provider. Override the dedicated endpoint when needed:
 ```bash
-RUN_LIVE_AI_TESTS=1 \
 AI_TEST_BASE_URL=http://10.0.0.10:8080/v1 \
 AI_TEST_MODEL=local \
 ./test.sh
 ```
+Set `RUN_LIVE_AI_TESTS=0` to explicitly disable live model tests.
 `AI_TEST_API_KEY` is available when the dedicated test server requires authentication. The live
 tests never fall back to `OPENAI_BASE_URL`, the GUI settings, or their API key. No server is
 started by the test suite.
@@ -167,8 +167,8 @@ started by the test suite.
   ranking, the deep-vs-factual budget contrast, section expansion, corpus-derived topics, and the
   doc-serving guards; `eval_set.json` + `test_eval.py` are a 15-query retrieval benchmark
   (`python3 eval.py` prints recall/MRR/coverage/avg-chars; the test fails the build if they
-  regress). The two answer tests call only `AI_TEST_BASE_URL` and skip unless explicitly enabled
-  and that endpoint is reachable.
+  regress). The live answer tests call only `AI_TEST_BASE_URL` and skip when explicitly disabled
+  or when that endpoint is unreachable.
 
 ## Adding / updating / removing documents
 Everything is driven by the `input/` folder:

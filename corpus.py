@@ -58,7 +58,7 @@ def query_mode(question):
         return "ui"
     if any(c in q for c in GLOBAL_CUES):
         return "global"
-    if any(c in q for c in HOW_CUES):
+    if any(c in q for c in HOW_CUES) or len(query_terms(question)) >= 5:
         return "how"
     return "exact"
 
@@ -80,13 +80,17 @@ STOPWORDS = set(
     "them his her our your their what which who whom how why when where can could should would "
     "will shall may might must not no yes about into over under than too very just also more "
     "most some any all each both few there here me my mine us "
-    "only nothing pls please concise verbose briefly bullet bullets markdown tldr give show tell".split()
+    "only nothing pls please concise verbose briefly bullet bullets markdown tldr give show tell "
+    "explain specific define definition detail details approach approaches".split()
 )
 
 
 def tokenize(text):
-    res = TOKEN_RE.findall(text.lower())
-    # print(f"DEBUG: tokenize('{text[:20]}...') -> {res}")
+    res = []
+    for token in TOKEN_RE.findall(text.lower()):
+        res.append(token)
+        if token.count("-") == 1:
+            res.extend(part for part in token.split("-") if len(part) >= 2)
     return res
 
 
@@ -122,7 +126,7 @@ class VocabularyIndex:
         self.deletes = defaultdict(set)
         self.vocab = set()
         self.body_df = body_df
-        
+
         for term in corpus_df:
             if self._is_suitable(term) and body_df.get(term, 0):
                 self.vocab.add(term)
@@ -147,14 +151,14 @@ class VocabularyIndex:
     def candidates(self, term, max_dist=1, limit=20):
         if term in self.vocab:
             return set() # Not OOV
-        
+
         cands = set()
         # Edit distance 1: deletions, replacements, insertions
         # Using deletion signatures for dist 1
         sigs = self._get_deletes(term) + [term]
         for sig in sigs:
             cands |= self.deletes.get(sig, set())
-            
+
         # Same-edge candidates cover common substitutions (tyre/tire) without
         # scanning every similarly-sized vocabulary term on each request.
         cands |= self.by_first_last.get((term[0], term[-1]), set())
@@ -183,7 +187,7 @@ class QueryAnalyzer:
     def analyze(self, question):
         original = question
         q_terms = query_terms(question)
-        
+
         expansions = []
         weighted = {t: 1.0 for t in q_terms}
         corrections_count = 0
@@ -233,7 +237,7 @@ class QueryAnalyzer:
             expansions.append(QueryExpansion(source=t, target=best_cand, reason="spelling", weight=0.75))
             weighted[best_cand] = max(weighted.get(best_cand, 0.0), 0.75)
             corrections_count += 1
-        
+
         return QueryAnalysis(
             original=original,
             terms=tuple(q_terms),
@@ -409,7 +413,7 @@ class Corpus:
             try:
                 with open(p, encoding="utf-8", errors="replace") as fh:
                     text = strip_html(fh.read())
-            except Exception as e:
+            except Exception:
                 continue
             if not text.strip():
                 continue
@@ -626,6 +630,19 @@ class Corpus:
         if analysis and analysis.rescued:
             qterms += [e.target for e in analysis.expansions]
         qset = set(qterms)
+        groups, grouped = [], set()
+        for term in qterms:
+            if term in grouped:
+                continue
+            group = {term}
+            if "-" in term:
+                group.update(stem(part) for part in term.split("-") if len(part) >= 2)
+            group &= qset
+            grouped.update(group)
+            groups.append(group)
+        lead_terms = set(groups[0]) if groups else set()
+        groups.sort(key=lambda group: min(self.df.get(term, self.N + 1) for term in group))
+        anchor_terms = next((group for group in groups if group.isdisjoint(lead_terms)), set())
         qtok = [t for t in tokenize(question) if t not in STOPWORDS]
         bigrams = [f"{qtok[i]} {qtok[i + 1]}" for i in range(len(qtok) - 1)]
         definition_terms = self.definition_terms(question, analysis)
@@ -638,8 +655,9 @@ class Corpus:
             body_l = ch["body"].lower()
             phrase_hit = any(bg in body_l for bg in bigrams)
             definition_hit = self.definition_hit(ch, definition_terms) if definition_terms else False
+            connected_hit = bool(anchor_terms & cterms) and bool(lead_terms & cterms)
             boost = (1 + 0.6 * cov + 0.4 * head_hit + 0.4 * name_hit +
-                     0.6 * phrase_hit + 2.0 * definition_hit)
+                     0.6 * phrase_hit + 2.0 * definition_hit + 4.0 * connected_hit)
             out.append((ch, bm * boost))
         out.sort(key=lambda kv: kv[1], reverse=True)
         return out
@@ -698,13 +716,14 @@ class Corpus:
         return tuple(out)
 
     def gather(self, question, sprint=None, char_budget=None, per_file_cap=None,
-               max_chunks=None, ranked=None, analysis=None, items=None):
+               max_chunks=None, ranked=None, analysis=None, items=None, expand_radius=None):
         cfg = MODE[query_mode(question)]
         nmax = max_chunks if max_chunks is not None else cfg["nmax"]
         ceil = char_budget if char_budget is not None else cfg["ceil"]
         cap = per_file_cap if per_file_cap is not None else cfg["cap"]
-        expand, dedup, rel, floor = cfg["expand"], cfg["dedup"], cfg["rel"], cfg["floor"]
-        
+        expand = cfg["expand"] if expand_radius is None else expand_radius
+        dedup, rel, floor = cfg["dedup"], cfg["rel"], cfg["floor"]
+
         if items is None:
             if ranked is None:
                 analysis, ranked = self.analyze_and_rank(question, sprint)
@@ -773,7 +792,9 @@ class Corpus:
             idxs = self.by_file[rel]
             body = "\n\n".join(self.chunks[idxs[k]]["body"] for k in range(lo, hi + 1))
             if used and total + len(body) > budget:
-                continue
+                body = seed["body"]
+                if total + len(body) > budget:
+                    continue
             used.append({**seed, "body": body, "score": score})
             total += len(body)
         return used

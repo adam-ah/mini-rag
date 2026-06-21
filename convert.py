@@ -6,6 +6,7 @@ from corpus import INPUT, OUTPUT, is_excluded
 CONVERT_EXT = {".docx", ".html", ".htm", ".xlsx", ".xls", ".pptx", ".msg", ".pdf"}
 COPY_EXT = {".csv", ".json", ".md", ".txt", ".xer"}
 FORCE = ("--force" in sys.argv) or os.environ.get("SEARCH_FORCE") == "1"
+OCR_MESSAGE = "No extractable text; this PDF may require OCR and is not included in the corpus."
 
 @dataclass
 class FileResult:
@@ -146,10 +147,10 @@ def produce(src, rel, ext, session):
             shutil.copy2(src, out)
             stamp(out, src)
             return FileResult(rel, "copied", [out], duration=time.time()-t0)
-        
+
         out = out_for(rel, ".txt" if ext == ".pdf" else ".md")
         ensure(out)
-        
+
         content = ""
         if ext == ".docx":
             # pandoc produces a file, we need to read it to validate
@@ -172,10 +173,12 @@ def produce(src, rel, ext, session):
             content = conv_msg(src)
         elif ext == ".pdf":
             content = conv_pdf(src)
-        
+
         if not content.strip():
-            return FileResult(rel, "warning", [], "No extractable text; this PDF may require OCR.", "OCR_NEEDED", time.time()-t0)
-            
+            safe_write("", out)
+            stamp(out, src)
+            return FileResult(rel, "warning", [out], OCR_MESSAGE, "OCR_NEEDED", time.time()-t0)
+
         safe_write(content, out)
         stamp(out, src)
         return FileResult(rel, "converted", [out], duration=time.time()-t0)
@@ -186,10 +189,9 @@ def produce(src, rel, ext, session):
 def check_deps():
     import importlib.util as u
     need = [m for m in ("flask", "fitz", "openpyxl", "markitdown", "extract_msg", "pandas", "anthropic") if not u.find_spec(m)]
-    pkg = {"fitz": "pymupdf", "extract_msg": "extract-msg"}
     if need:
         print(f"Missing dependencies: {', '.join(need)}")
-        print(f"Please run: python3 -m pip install -r requirements.txt")
+        print("Please run: python3 -m pip install -r requirements.txt")
         return False
     return True
 
@@ -233,6 +235,8 @@ def run_conversion() -> SessionResult:
                     session.errors.append(res)
             else:
                 session.skipped += 1
+                if ext == ".pdf" and any(os.path.getsize(out) == 0 for out in outs):
+                    session.errors.append(FileResult(rel, "warning", outs, OCR_MESSAGE, "OCR_NEEDED"))
         except (ImportError, ModuleNotFoundError) as e:
             missing_deps.add(str(e).split("'")[1] if "'" in str(e) else str(e))
         except FileNotFoundError:
@@ -241,8 +245,8 @@ def run_conversion() -> SessionResult:
             session.failed += 1
             session.errors.append(FileResult(rel, "failed", [], str(e), type(e).__name__))
 
-    print(f"\nSyncing {total} files complete.") 
-    
+    print(f"\nSyncing {total} files complete.")
+
     pruned = 0
     for root, _, files in os.walk(OUTPUT):
         for f in files:
@@ -261,6 +265,8 @@ def main():
     res = run_conversion()
     print(f"output/: {res.converted} converted, {res.copied} copied, "
           f"{res.skipped} up-to-date, {res.pruned} pruned, {res.failed} errors")
+    for warning in (result for result in res.errors if result.status == "warning"):
+        print(f"WARN: {warning.relpath}: {warning.message}")
     if res.exit_code != 0:
         sys.exit(res.exit_code)
 

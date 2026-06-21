@@ -79,6 +79,9 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .awaiting{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13.5px;padding:8px 0}
   .awaiting .spin{width:16px;height:16px}
+  .refining-placeholder{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13.5px;padding:8px 0}
+  .initial-answer{margin-bottom:0}
+  .refined-card{border-color:var(--accent)}
   .query-help{display:none;margin:10px 0 14px;padding:10px 12px;border:1px solid var(--border);
               border-radius:9px;background:#fff;font-size:13px}
   .query-help .expanded{color:var(--muted);margin-bottom:7px}
@@ -192,6 +195,12 @@
     <div class="answer" id="answer"></div>
   </div>
 
+  <div id="refinedAnswerCard" class="card refined-card" style="display:none">
+    <h2>Refined Answer</h2>
+    <div id="refinedSpinner" class="refining-placeholder"><span class="spin"></span> Refining answer with additional evidence…</div>
+    <div class="answer" id="refinedAnswer"></div>
+  </div>
+
   <div id="screensCard" class="card" style="display:none">
     <h2>Relevant UI screens</h2>
     <div id="screens"></div>
@@ -221,9 +230,42 @@ function encPath(prefix, rel){return prefix + rel.split('/').map(encodeURICompon
 function wfHref(rel){return encPath('/wireframe/', rel);}
 function docHref(rel){return encPath('/doc/', rel);}
 
-function wireCites(){
-  $('#answer').querySelectorAll('.cite').forEach(c=>c.onclick=()=>{
-    const el=document.getElementById('src-'+c.dataset.n);
+function verificationBadge(refinement){
+  if(!refinement) return '';
+  const r = refinement.reason;
+  const refined = refinement.refined;
+  const added = refinement.added_passages || 0;
+  let label, title;
+  if(refined){
+    label = `verified & refined · +${added} passages`;
+    title = `Reflection found ${refinement.missing_aspects.length} gap(s); follow-up searches added ${added} new passage(s).`;
+  } else if(r === 'complete'){
+    label = 'verified · no gaps';
+    title = 'Reflection model confirmed the initial answer covers the question fully.';
+  } else if(r === 'no_valid_queries'){
+    label = 'verified · ungrounded suggestions rejected';
+    title = 'Reflection found gaps but its suggested queries used terms not in evidence; rejected on safety grounds.';
+  } else if(r === 'no_new_evidence'){
+    label = 'verified · no new evidence';
+    title = 'Reflection found gaps; follow-up searches returned only passages we already had.';
+  } else if(r === 'reflection_failed'){
+    label = 'not re-checked';
+    title = 'Reflection model did not return a usable answer; running the initial answer as-is.';
+  } else if(r === 'disabled'){
+    label = 'not checked';
+    title = 'Adaptive refinement is disabled in settings.';
+  } else if(!refinement.checked){
+    return '';
+  } else {
+    label = 'verified';
+    title = 'Initial answer kept.';
+  }
+  return ` <span class="pill ${refined?'on':'off'}" title="${esc(title)}">${esc(label)}</span>`;
+}
+
+function wireCites(selector, sourceScope){
+  $(selector).querySelectorAll('.cite').forEach(c=>c.onclick=()=>{
+    const el=document.getElementById(`src-${sourceScope}-${c.dataset.n}`);
     if(el){el.scrollIntoView({behavior:'smooth',block:'center'});
       el.style.transition='background .2s'; el.style.background='#dbeafe';
       setTimeout(()=>el.style.background='',900);}
@@ -268,7 +310,7 @@ function renderSources(sources){
   MD.setSources((sources||[]).length);
   const sc=$('#sources'); sc.innerHTML='';
   (sources||[]).forEach(s=>{
-    const li=document.createElement('li'); li.id='src-'+s.n;
+    const li=document.createElement('li'); li.id='src-initial-'+s.n;
     let h=`<span class="num">[${s.n}]</span> `
       +`<a class="path" href="${docHref(s.relpath)}" target="_blank" rel="noopener">${esc(s.relpath)} ↗</a>`
       +`<span class="sp">${esc(s.sprint||'')}</span><div class="prev">${esc(s.preview)}…</div>`;
@@ -321,22 +363,77 @@ function handleStreamMessage(m, state){
     state.suggestions=m.suggestions||[];
     renderQueryHelp(state.expansions, state.suggestions, 'ask');
   }
-  else if(m.type==='token'){ state.answerText+=m.text; $('#answer').innerHTML=MD.render(state.answerText); }
-  else if(m.type==='answer'){ state.answerText=m.text; $('#answer').innerHTML=MD.render(state.answerText); }
-  else if(m.type==='sources') renderSources(m.sources);
+  else if(m.type==='token'){
+    if(!state.inRefinement){
+      state.answerText+=m.text;
+      $('#answer').innerHTML=MD.render(state.answerText);
+    }else{
+      state.refinedText+=m.text;
+      $('#refinedAnswer').innerHTML=MD.render(state.refinedText);
+    }
+  }
+  else if(m.type==='answer'){
+    if(!state.inRefinement){
+      state.answerText=m.text;
+      $('#answer').innerHTML=MD.render(state.answerText);
+    }else{
+      state.refinedText=m.text;
+      $('#refinedAnswer').innerHTML=MD.render(m.text);
+      $('#refinedSpinner').style.display='none';
+    }
+  }
+  else if(m.type==='answer_divider'){
+    state.inRefinement=true;
+    $('#refinedAnswerCard').style.display='block';
+    $('#refinedSpinner').style.display='flex';
+    $('#refinedAnswer').innerHTML='';
+  }
+  else if(m.type==='refinement_discard'){
+    state.inRefinement=false;
+    state.refinedText='';
+    $('#refinedSpinner').style.display='none';
+    $('#refinedAnswer').innerHTML='';
+    $('#refinedAnswerCard').style.display='none';
+  }
+  else if(m.type==='sources'){
+    state.sourcesCount++;
+    if(state.sourcesCount===1){
+      renderSources(m.sources);
+    }else{
+      MD.setSources((m.sources||[]).length);
+      const sc=$('#sources');
+      (m.sources||[]).forEach(s=>{
+        const li=document.createElement('li'); li.id='src-refined-'+s.n;
+        let h=`<span class="num">[${s.n}]</span> `
+          +`<a class="path" href="${docHref(s.relpath)}" target="_blank" rel="noopener">${esc(s.relpath)} ↗</a>`
+          +`<span class="sp">(refined) ${esc(s.sprint||'')}</span><div class="prev">${esc(s.preview)}…</div>`;
+        if(s.html) h+=`<a class="wf" href="${wfHref(s.html)}" target="_blank" rel="noopener">open wireframe ↗</a>`;
+        li.innerHTML=h; sc.appendChild(li);
+      });
+    }
+  }
   else if(m.type==='screens') renderScreens(m.screens);
   else if(m.type==='done'){
     state.expansions=m.expansions||state.expansions;
     state.suggestions=m.suggestions||state.suggestions;
     renderQueryHelp(state.expansions, state.suggestions, 'ask');
-    finishLastStep(); $('#answer').innerHTML=MD.render(state.answerText); wireCites();
+    finishLastStep();
+    if(state.inRefinement){
+      $('#refinedSpinner').style.display='none';
+      $('#refinedAnswer').innerHTML=MD.render(state.refinedText);
+    }else{
+      $('#answer').innerHTML=MD.render(state.answerText);
+    }
+    wireCites('#answer','initial');
+    if(state.inRefinement) wireCites('#refinedAnswer','refined');
     let line='mode: '+m.mode;
     if(m.coverage&&m.coverage.chunks) line+=` · synthesized from ${m.coverage.chunks} passages across ${m.coverage.files} files`;
-    $('#mode').textContent=line;
+    $('#mode').innerHTML=line+verificationBadge(m.refinement);
     $('#ask').disabled=false;
     setStepsCollapsed(true);
     $('#answerCard').scrollIntoView({behavior:'smooth',block:'start'});
   } else if(m.type==='error'){
+    $('#refinedSpinner').style.display='none';
     $('#answer').textContent='Error: '+m.message; $('#ask').disabled=false;
   }
 }
@@ -351,8 +448,9 @@ async function ask(){
   $('#stepsCard').style.display='block'; $('#steps').innerHTML=''; setStepsCollapsed(false);
   $('#answerCard').style.display='block'; $('#mode').textContent='';
   $('#answer').innerHTML='<div class="awaiting"><span class="spin"></span> waiting for the model…</div>';
+  $('#refinedAnswerCard').style.display='none'; $('#refinedSpinner').style.display='none'; $('#refinedAnswer').innerHTML='';
   $('#screensCard').style.display='none'; $('#screens').innerHTML='';
-  const state={answerText:'',expansions:[],suggestions:[]};
+  const state={answerText:'',refinedText:'',inRefinement:false,expansions:[],suggestions:[],sourcesCount:0};
   try{
     const response=await fetch('/api/ask_stream',{
       method:'POST',
@@ -378,7 +476,9 @@ async function ask(){
   }catch(e){
     if(e.name==='AbortError') return;
     finishLastStep(); $('#ask').disabled=false;
-    if(state.answerText){ $('#answer').innerHTML=MD.render(state.answerText); wireCites(); }
+    $('#refinedSpinner').style.display='none';
+    $('#refinedAnswerCard').style.display='none';
+    if(state.answerText){ $('#answer').innerHTML=MD.render(state.answerText); wireCites('#answer','initial'); }
     else $('#answer').innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>';
   }
 }
@@ -390,6 +490,7 @@ async function searchOnly(){
   clearSources();
   if(es){es.close(); es=null;}
   $('#stepsCard').style.display='none'; $('#answerCard').style.display='none';
+  $('#refinedAnswerCard').style.display='none';
   $('#screensCard').style.display='none'; $('#screens').innerHTML='';
   $('#hitsCard').style.display='block'; $('#hits').innerHTML='<span class="spin"></span>';
   const r=await fetch('/api/search?q='+encodeURIComponent(text));

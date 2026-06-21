@@ -1,7 +1,7 @@
-import os, json, urllib.request, re
+import json, urllib.request, re
 from dataclasses import dataclass
-from typing import Generator, Tuple, Optional
-from settings import Settings, AISettings
+from typing import Generator, Tuple
+from settings import AISettings
 
 def openai_payload(question: str, context: str, n: int, stream: bool, settings: AISettings) -> bytes:
     return json.dumps({
@@ -37,19 +37,26 @@ SYSTEM_PROMPT = (
     "excerpts rather than stopping at the first one. Otherwise give a concise answer, integrating "
     "across the excerpts when the question is broad rather than just summarizing the first one. "
     "Cite excerpts inline as [1], [2] where you draw on them, unless the requested format makes "
-    "citations impractical. Use only the provided excerpts; if they do not contain the answer, "
+    "citations impractical. Do not infer a relationship merely because separate excerpts mention its "
+    "parts; state it only when an excerpt explicitly connects them. Use only the provided excerpts; "
+    "if they do not contain the answer, "
     "say so. Some excerpts are UI wireframes (tagged [UI wireframe]); name a relevant screen so "
     "the reader can open it."
 )
 
 REFLECTION_SYSTEM_PROMPT = (
     "/no_think\n"
-    "Return one JSON object immediately. Do not explain or reason step by step. Check whether the "
-    "draft fully answers the question from the excerpts. Treat undefined terms, aliases, acronyms, "
-    "cross-references, prerequisites, exceptions, stages, and unanswered question parts as gaps. "
-    "Queries may use only concepts in the question, draft, or excerpts. Never add facts or guess "
-    "synonyms. Return complete, missing_aspects, and queries. Use complete=true and empty arrays "
-    "when there is no concrete gap."
+    "Return JSON only: complete, missing_aspects, queries. Set complete=false only when another search can "
+    "add new evidence that gives a fuller answer: a missing mechanism, application, distinction, limitation, "
+    "stage, exception, comparison, cross-reference, or strongly related concept. Do not merely rephrase the "
+    "question or request more detail already present. Queries should target complementary evidence. You may "
+    "propose a strongly related concept not yet named when it is directly likely to answer the question; "
+    "combine it with terms from the question or excerpts so the corpus can verify the relationship. If the "
+    "draft offers named alternatives, query their definition or application instead of the absent term. "
+    "A draft that relies on an unresolved named cross-reference is incomplete. "
+    "Phrase definition queries exactly as 'what is <concept>'. "
+    "Treat an unsupported relationship as a gap unless the excerpts explicitly connect its concepts. "
+    "Exclude trivia and weak speculation. Otherwise set complete=true with empty arrays."
 )
 
 
@@ -95,15 +102,7 @@ def _completion(system_prompt: str, user_content: str, settings: AISettings,
     return ""
 
 
-def reflect(question: str, draft: str, context: str, settings: AISettings) -> ReflectionResult:
-    prompt = (
-        "/no_think\n"
-        f"Question:\n{question}\n\nDraft answer:\n{draft}\n\n"
-        f"Retrieved excerpts:\n{context}\n\n"
-        f"Return at most {settings.reflection_max_queries} missing aspects and queries."
-    )
-    raw = _completion(REFLECTION_SYSTEM_PROMPT, prompt, settings,
-                      settings.reflection_max_tokens, 0.0, True)
+def _parse_reflection(raw: str, limit: int) -> ReflectionResult:
     fenced = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", raw, re.DOTALL | re.IGNORECASE)
     if fenced:
         raw = fenced.group(1)
@@ -123,7 +122,6 @@ def reflect(question: str, draft: str, context: str, settings: AISettings) -> Re
     queries = data.get("queries", [])
     if not isinstance(aspects, list) or not isinstance(queries, list):
         raise ValueError("Invalid reflection response")
-    limit = settings.reflection_max_queries
     clean_aspects = tuple(x.strip()[:240] for x in aspects[:limit] if isinstance(x, str) and x.strip())
     clean_queries = tuple(x.strip()[:240] for x in queries[:limit] if isinstance(x, str) and x.strip())
     if data["complete"]:
@@ -131,6 +129,26 @@ def reflect(question: str, draft: str, context: str, settings: AISettings) -> Re
     if not clean_aspects or not clean_queries:
         raise ValueError("Incomplete reflection has no concrete gaps")
     return ReflectionResult(False, clean_aspects, clean_queries)
+
+
+def reflect(question: str, draft: str, context: str, settings: AISettings) -> ReflectionResult:
+    prompt = (
+        "/no_think\n"
+        f"Question:\n{question}\n\nDraft answer:\n{draft}\n\n"
+        f"Retrieved excerpts:\n{context}\n\n"
+        f"Return at most {settings.reflection_max_queries} missing aspects and queries."
+    )
+    budgets = [settings.reflection_max_tokens]
+    if settings.reflection_max_tokens < 2000:
+        budgets.append(2000)
+    error = None
+    for budget in budgets:
+        raw = _completion(REFLECTION_SYSTEM_PROMPT, prompt, settings, budget, 0.0, True)
+        try:
+            return _parse_reflection(raw, settings.reflection_max_queries)
+        except ValueError as current:
+            error = current
+    raise error
 
 def test_connection(settings: AISettings) -> Tuple[bool, str]:
     if settings.backend == "extractive":
@@ -155,7 +173,7 @@ def test_connection(settings: AISettings) -> Tuple[bool, str]:
 def answer(question: str, context: str, count: int, settings: AISettings) -> str:
     if settings.backend == "extractive":
         return "" # Handled by app.py using extractive_answer
-    
+
     return _completion(SYSTEM_PROMPT, user_prompt(question, context, count), settings,
                        settings.max_tokens, settings.temperature)
 
@@ -179,7 +197,7 @@ def stream(question: str, context: str, count: int, settings: AISettings) -> Gen
                 delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content")
                 if delta:
                     yield delta
-    
+
     elif settings.backend == "claude":
         import anthropic
         client = anthropic.Anthropic(api_key=settings.api_key)

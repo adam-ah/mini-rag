@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import os, re, json, time, urllib.request, sys
+import os, re, json, urllib.request, sys
 from flask import Flask, request, jsonify, Response, stream_with_context, abort
-from corpus import Corpus, OUTPUT, RERANK_POOL, is_excluded, query_mode
+from corpus import Corpus, OUTPUT, is_excluded, query_mode
 from settings import settings_service, AISettings
 import backend
 import ingest
@@ -94,8 +94,11 @@ class RefinementPlan:
     reason: str = "disabled"
 
 
+_REFLECTION_HARD_CAP_CHARS = 100000
+
+
 def passage_key(passage):
-    return (passage.get("relpath"), passage.get("ord"), passage.get("body"))
+    return (passage.get("relpath"), passage.get("ord"))
 
 
 def validate_reflection_queries(question, used, reflection, corpus):
@@ -104,27 +107,48 @@ def validate_reflection_queries(question, used, reflection, corpus):
     grounded = set(original)
     for passage in used:
         grounded.update(passage.get("tf", {}))
+        grounded.update(corpus.query_terms(passage.get("body", "")))
+    for term in tuple(grounded):
+        grounded.update(corpus.document_expansions.get(term, ()))
     accepted, seen = [], set()
     for proposed in reflection.queries:
         terms = tuple(corpus.query_terms(proposed))
-        key = " ".join(terms)
-        if not terms or key in seen or set(terms) == original:
+        accepted_terms = tuple(dict.fromkeys(term for term in terms if term in grounded))
+        novel_terms = set(terms) - grounded
+        key = " ".join(accepted_terms)
+        if not accepted_terms or key in seen or (not novel_terms and set(accepted_terms) == original):
             continue
-        # Every meaningful query term must be traceable to existing evidence. This
-        # deliberately rejects guessed synonyms and entities.
-        if not set(terms).issubset(grounded):
-            continue
+        corpus_grounded = False
+        if novel_terms:
+            required = max(1, (len(novel_terms) + 1) // 2)
+            for hit in corpus.search(proposed, limit=8):
+                hit_terms = set(hit.get("tf", {}))
+                hit_terms.update(corpus.query_terms(hit.get("body", "")))
+                if hit_terms & set(accepted_terms) and len(hit_terms & novel_terms) >= required:
+                    corpus_grounded = True
+                    break
         seen.add(key)
-        accepted.append(proposed)
+        accepted.append(proposed if not novel_terms or corpus_grounded else key)
     return tuple(accepted)
+
+
+def refinement_question(question, initial_answer):
+    return (
+        f"Original question:\n{question}\n\n"
+        f"Initial answer:\n{initial_answer}\n\n"
+        "Write a refined answer that materially expands the initial answer using the new evidence. "
+        "Add missing mechanisms, applications, distinctions, or limitations supported by the excerpts. "
+        "Name newly supported concepts and explain how they extend or change the initial answer. "
+        "Do not merely restate or lightly rephrase the initial answer."
+    )
 
 
 def plan_refinement(question, sprint, initial_answer, used, corpus, ai_settings):
     if not ai_settings.adaptive_refinement or ai_settings.backend == "extractive":
         return RefinementPlan(merged=tuple(used), reason="disabled")
     reflection_context = build_context(used)
-    if len(reflection_context) > ai_settings.reflection_context_budget:
-        reflection_context = reflection_context[:ai_settings.reflection_context_budget]
+    if len(reflection_context) > _REFLECTION_HARD_CAP_CHARS:
+        reflection_context = reflection_context[:_REFLECTION_HARD_CAP_CHARS]
     try:
         reflection = backend.reflect(question, initial_answer, reflection_context, ai_settings)
     except Exception as error:
@@ -145,7 +169,7 @@ def plan_refinement(question, sprint, initial_answer, used, corpus, ai_settings)
         items = corpus.rerank(follow_up, candidates, analysis=analysis)
         candidates, _ = corpus.gather(
             follow_up, sprint=sprint, analysis=analysis, items=items,
-            char_budget=per_query_budget, max_chunks=6,
+            char_budget=per_query_budget, max_chunks=6, expand_radius=1,
         )
         follow_terms = set(corpus.query_terms(follow_up))
         for passage in candidates:
@@ -186,6 +210,31 @@ def absence_answer(answer):
     ))
 
 
+def refinement_reason_label(reason):
+    if reason == "complete":
+        return "No additional evidence needed (reflection model found no gaps)"
+    if reason == "no_valid_queries":
+        return "No additional evidence needed (reflection's suggested queries were not grounded in evidence)"
+    if reason == "no_new_evidence":
+        return "No additional evidence needed (follow-up searches found no new passages)"
+    if reason == "reflection_failed":
+        return "No additional evidence needed (reflection model returned no usable answer; running initial answer as-is)"
+    if reason == "disabled":
+        return "Adaptive refinement disabled"
+    return f"No additional evidence needed (reason: {reason})"
+
+
+def gap_step_label(reflection):
+    if not reflection or not reflection.missing_aspects:
+        return None
+    aspects = [a for a in reflection.missing_aspects if a]
+    if not aspects:
+        return None
+    items = "; ".join(f"\"{a}\"" for a in aspects[:5])
+    more = f" (+{len(aspects) - 5} more)" if len(aspects) > 5 else ""
+    return f"Found gap(s) from initial answer: {items}{more}"
+
+
 
 
 def validate_settings_payload(data):
@@ -219,11 +268,11 @@ def api_settings():
 def put_settings():
     if request.headers.get("X-CSRF-Token") != CSRF_TOKEN:
         abort(403, "Invalid CSRF token")
-    
+
     data = request.get_json(force=True, silent=True) or {}
     try:
         validate_settings_payload(data)
-        
+
         # Handle partial updates for AI settings
         current_ai = asdict(settings_service.get().ai)
         new_ai = data.get("ai", {})
@@ -237,11 +286,11 @@ def put_settings():
             for k, v in new_ai.items():
                 if k != "api_key":
                     current_ai[k] = v
-        
+
         # The current GUI does not edit retrieval settings. An empty object must
         # not erase exclusions while saving unrelated AI settings.
         new_ret = data.get("retrieval") or asdict(settings_service.get().retrieval)
-        
+
         settings_service.save(current_ai, new_ret)
         return jsonify({"status": "saved"})
     except ValueError as e:
@@ -272,7 +321,7 @@ def test_settings():
     ai_data = data.get("ai", {})
     if not isinstance(ai_data, dict):
         return jsonify({"error": "Invalid AI settings"}), 400
-    
+
     try:
         test_ai = AISettings(**ai_data)
         ok, msg = backend.test_connection(test_ai)
@@ -389,7 +438,10 @@ def api_ask():
             answer = initial_answer
             if refinement.reason == "new_evidence":
                 try:
-                    candidate = backend.answer(q, build_context(final_used), len(final_used), s.ai)
+                    candidate = backend.answer(
+                        refinement_question(q, initial_answer),
+                        build_context(final_used), len(final_used), s.ai,
+                    )
                     if absence_answer(candidate) and not absence_answer(initial_answer):
                         final_used = used
                         refinement = RefinementPlan(
@@ -426,6 +478,17 @@ def api_ask():
 
 def sse(obj):
     return "data: " + json.dumps(obj) + "\n\n"
+
+
+def chunk_tokens(text, size=120):
+    pos = 0
+    while pos < len(text):
+        end = min(pos + size, len(text))
+        sp = text.rfind(" ", pos, end)
+        if sp > pos:
+            end = sp
+        yield text[pos:end]
+        pos = end
 
 
 @app.post("/api/ask_stream")
@@ -490,65 +553,60 @@ def api_ask_stream():
         yield sse({"type": "step",
                    "label": f"Built prompt: {len(used)} excerpts, {chars:,} chars (~{chars // 4:,} tokens)"})
         yield sse({"type": "step", "label": f"Creating an initial answer with {target}"})
-        t0 = time.time()
         initial_answer = ""
+        initial_sources_emitted = False
+        refinement_started = False
         try:
-            # Buffer the draft instead of exposing it. The selected answer is the
-            # only one sent to the browser, so refinement never visibly rewrites it.
-            initial_answer = "".join(backend.stream(q, context, len(used), s.ai))
+            for tok in backend.stream(q, context, len(used), s.ai):
+                initial_answer += tok
+                yield sse({"type": "token", "text": tok})
             if not initial_answer.strip():
                 raise ValueError("model returned no content")
+            compacted_initial, initial_sources = compact_citations(initial_answer, used)
+            initial_sources_emitted = True
+            yield sse({"type": "sources", "sources": initial_sources})
+            yield sse({"type": "answer", "text": compacted_initial})
             mode = f"{s.ai.backend}:{s.ai.model}" + (f" @ {s.ai.base_url}" if s.ai.backend == "openai" else "")
             yield sse({"type": "step", "label": "Checking the answer for unresolved evidence"})
             refinement = plan_refinement(q, sprint, initial_answer, used, corpus, s.ai)
             final_used = list(refinement.merged)
+            gap_label = gap_step_label(refinement.reflection)
+            if gap_label:
+                yield sse({"type": "step", "label": gap_label})
             if refinement.queries:
                 yield sse({"type": "step",
                            "label": "Follow-up search: " + "; ".join(refinement.queries)})
+            refined_rejected = False
             if refinement.reason == "new_evidence":
                 yield sse({"type": "step",
                            "label": f"Found {len(refinement.added)} additional relevant passage(s); refining answer"})
                 final_context = build_context(final_used)
-                candidate = "".join(backend.stream(q, final_context, len(final_used), s.ai))
-                if absence_answer(candidate) and not absence_answer(initial_answer):
-                    answer_text = initial_answer
+                refinement_started = True
+                yield sse({"type": "answer_divider"})
+                refined_answer = ""
+                for tok in backend.stream(
+                    refinement_question(q, initial_answer),
+                    final_context, len(final_used), s.ai,
+                ):
+                    refined_answer += tok
+                    yield sse({"type": "token", "text": tok})
+                if not refined_answer.strip():
+                    raise ValueError("model returned no content")
+                if absence_answer(refined_answer) and not absence_answer(initial_answer):
+                    refined_rejected = True
                     final_used = used
                     refinement = RefinementPlan(
                         reflection=refinement.reflection, queries=refinement.queries,
                         added=refinement.added, merged=tuple(used),
                         reason="refined_answer_rejected",
                     )
-                else:
-                    answer_text = candidate
-                stream = None
+                    yield sse({"type": "refinement_discard"})
             else:
-                yield sse({"type": "step", "label": "No additional evidence needed"})
-                stream = None
-                answer_text = initial_answer
-            got, nchunks, nchars = False, 0, 0
-            if stream is None:
-                got = bool(answer_text)
-            else:
-                for tok in stream:
-                    if not got:
-                        got = True
-                        yield sse({"type": "step",
-                                   "label": f"Receiving final response from {s.ai.model} (waited {time.time() - t0:.1f}s)…"})
-                    nchunks += 1
-                    nchars += len(tok)
-                    answer_text += tok
-                    yield sse({"type": "token", "text": tok})
-            elapsed = time.time() - t0
-            if not got:
-                yield sse({"type": "answer", "text": "(model returned no content)"})
-                yield sse({"type": "step", "label": f"No content returned ({elapsed:.1f}s)"})
-            else:
-                if stream is not None:
-                    yield sse({"type": "step",
-                               "label": f"Received {nchars:,} chars in {nchunks:,} chunks ({elapsed:.1f}s)"})
-                answer_text, sources = compact_citations(answer_text, final_used)
-                yield sse({"type": "answer", "text": answer_text})
-                yield sse({"type": "sources", "sources": sources})
+                yield sse({"type": "step", "label": refinement_reason_label(refinement.reason)})
+            if refinement.reason == "new_evidence" and not refined_rejected:
+                compacted_refined, refined_sources = compact_citations(refined_answer, final_used)
+                yield sse({"type": "sources", "sources": refined_sources})
+                yield sse({"type": "answer", "text": compacted_refined})
             final_coverage = {"chunks": len(final_used),
                               "files": len({u["relpath"] for u in final_used})}
             yield sse({"type": "done", "mode": mode,
@@ -558,11 +616,14 @@ def api_ask_stream():
         except Exception as e:
             fallback = initial_answer or extractive_answer(used)
             answer, sources = compact_citations(fallback, used)
+            if refinement_started:
+                yield sse({"type": "refinement_discard"})
             yield sse({"type": "step",
                        "label": f"{s.ai.backend} backend failed ({type(e).__name__}: {str(e)[:80]}) — "
                                 + ("keeping the initial answer" if initial_answer else "falling back to passages")})
             yield sse({"type": "answer", "text": answer})
-            yield sse({"type": "sources", "sources": sources})
+            if not initial_sources_emitted:
+                yield sse({"type": "sources", "sources": sources})
             yield sse({"type": "done", "mode": "extractive-fallback", "coverage": coverage,
                        "rescued": analysis.rescued, "expansions": expansions,
                        "suggestions": list(suggestions),
@@ -661,7 +722,7 @@ def wireframe(rel):
         abort(404)
     with open(target, encoding="utf-8", errors="replace") as f:
         raw_html = f.read()
-    
+
     # Wrap in a sandboxed iframe
     wrapper = (
         f"<!doctype html><html><head><title>{html_escape(rel)}</title>"
@@ -693,7 +754,7 @@ def index():
 if __name__ == "__main__":
     if get_corpus().N == 0:
         raise SystemExit(f"No documents loaded from {OUTPUT} — run ./convert.sh to build it.")
-    
+
     s = settings_service.get()
     port = int(os.environ.get("PORT", "5000"))
     desc = (f"OpenAI-compatible {s.ai.model} @ {s.ai.base_url}" if s.ai.backend == "openai"

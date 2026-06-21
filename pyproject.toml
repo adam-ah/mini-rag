@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py38"
+exclude = [".git", "__pycache__", ".pytest_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E401",   # multiple imports on one line - intentional style
+    "E402",   # module-level import not at top of file - intentional
+    "E501",   # line too long - allow up to default 88
+    "E701",   # multiple statements on one line (colon) - intentional style
+    "E702",   # multiple statements on one line (semicolon) - intentional style
+    "E741",   # ambiguous variable name 'l' - allowed (text matching in corpus.py)
+]
